@@ -270,6 +270,14 @@ export const useGameStore = defineStore('game', () => {
     processDelayedResults()
   }
 
+  function endDay() {
+    saveHistory()
+    if (timeSlot.value !== gameConfig.timeSlots[0]) {
+      addLog('system', '😴 你决定提前结束今天，好好休息一下')
+    }
+    nextDay()
+  }
+
   function performAction(actionType: ActionType, targetId?: string, giftId?: string) {
     if (actionsRemaining.value <= 0) {
       addLog('system', '⚠️ 今天的行动次数已用完')
@@ -572,6 +580,9 @@ export const useGameStore = defineStore('game', () => {
     toggleDarkMode,
     resetGame,
     initGame,
-    checkAndTriggerEvent
+    checkAndTriggerEvent,
+    advanceTime,
+    nextDay,
+    endDay
   }
 })
