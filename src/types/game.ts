@@ -40,6 +40,19 @@ export interface CardConfig {
   unlockCondition: string
 }
 
+export interface DelayedResult {
+  daysAfter: number
+  message: string
+  type?: 'system' | 'story'
+  characterId?: string
+  effects?: {
+    characterId: string
+    affinityChange?: number
+    moodChange?: number
+  }[]
+  resourceChange?: number
+}
+
 export interface EventChoice {
   id: string
   text: string
@@ -52,6 +65,7 @@ export interface EventChoice {
   nextEventId?: string
   unlockCharacterId?: string
   addCardId?: string
+  delayedResults?: DelayedResult[]
 }
 
 export interface GameEventConfig {

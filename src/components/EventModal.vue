@@ -57,6 +57,7 @@ function formatEffect(effect: any): string {
             v-for="choice in event.choices"
             :key="choice.id"
             class="choice-btn"
+            :class="{ 'has-delayed': choice.delayedResults && choice.delayedResults.length > 0 }"
             @click="handleChoice(choice.id)"
           >
             <span class="choice-text">{{ choice.text }}</span>
@@ -71,6 +72,9 @@ function formatEffect(effect: any): string {
               </span>
               <span v-if="choice.resourceChange" class="effect-tag" :class="{ positive: choice.resourceChange > 0, negative: choice.resourceChange < 0 }">
                 代币 {{ choice.resourceChange > 0 ? '+' : '' }}{{ choice.resourceChange }}
+              </span>
+              <span v-if="choice.delayedResults && choice.delayedResults.length > 0" class="effect-tag delayed-hint" title="该选择会产生连锁后续影响">
+                🔗 连锁影响 x{{ choice.delayedResults.length }}
               </span>
             </div>
           </button>
@@ -153,12 +157,37 @@ function formatEffect(effect: any): string {
   border: 2px solid transparent;
   border-radius: var(--radius-md);
   transition: all 0.2s;
+  position: relative;
+}
+
+.choice-btn.has-delayed {
+  border-color: rgba(20, 184, 166, 0.3);
+}
+
+.choice-btn.has-delayed::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, transparent 50%, #14b8a6 50%);
+  border-radius: 0 var(--radius-md) 0 0;
 }
 
 .choice-btn:hover {
   border-color: var(--accent-primary);
   background: var(--accent-light);
   transform: translateX(4px);
+}
+
+.choice-btn.has-delayed:hover {
+  border-color: #14b8a6;
+  background: #f0fdfa;
+}
+
+[data-theme='dark'] .choice-btn.has-delayed:hover {
+  background: #134e4a;
 }
 
 .choice-text {
@@ -201,5 +230,18 @@ function formatEffect(effect: any): string {
 [data-theme='dark'] .effect-tag.negative {
   background: #7f1d1d;
   color: #fca5a5;
+}
+
+.effect-tag.delayed-hint {
+  background: #ccfbf1;
+  color: #0f766e;
+  border: 1px solid #5eead4;
+  font-weight: 500;
+}
+
+[data-theme='dark'] .effect-tag.delayed-hint {
+  background: #134e4a;
+  color: #5eead4;
+  border-color: #14b8a6;
 }
 </style>

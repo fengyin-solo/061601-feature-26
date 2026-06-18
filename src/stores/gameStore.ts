@@ -21,6 +21,22 @@ export interface CharacterState {
   unlocked: boolean
 }
 
+export interface PendingDelayedResult {
+  id: string
+  triggerDay: number
+  message: string
+  type: 'system' | 'story'
+  characterId?: string
+  effects?: {
+    characterId: string
+    affinityChange?: number
+    moodChange?: number
+  }[]
+  resourceChange?: number
+  sourceEventId: string
+  sourceChoiceId: string
+}
+
 export interface LogEntry {
   id: number
   day: number
@@ -29,6 +45,9 @@ export interface LogEntry {
   message: string
   characterId?: string
   timestamp: number
+  linkedEventId?: string
+  linkedChoiceId?: string
+  isDelayedResult?: boolean
 }
 
 export interface HistorySnapshot {
@@ -41,6 +60,7 @@ export interface HistorySnapshot {
   triggeredEvents: string[]
   collectedCards: string[]
   logs: LogEntry[]
+  pendingDelayedResults: PendingDelayedResult[]
 }
 
 export const useGameStore = defineStore('game', () => {
@@ -66,8 +86,10 @@ export const useGameStore = defineStore('game', () => {
   const triggeredEvents = ref<string[]>([])
   const collectedCards = ref<string[]>([])
   const logs = ref<LogEntry[]>([])
+  const pendingDelayedResults = ref<PendingDelayedResult[]>([])
   const history = ref<HistorySnapshot[]>([])
   let logIdCounter = 0
+  let delayedResultIdCounter = 0
 
   const unlockedCharacters = computed(() =>
     characters.value.filter(c => c.unlocked)
@@ -81,7 +103,12 @@ export const useGameStore = defineStore('game', () => {
     gameConfig.characters.find(c => c.id === selectedCharacterId.value) || null
   )
 
-  function addLog(type: LogEntry['type'], message: string, characterId?: string) {
+  function addLog(
+    type: LogEntry['type'],
+    message: string,
+    characterId?: string,
+    extra?: { linkedEventId?: string; linkedChoiceId?: string; isDelayedResult?: boolean }
+  ) {
     logs.value.push({
       id: ++logIdCounter,
       day: day.value,
@@ -89,7 +116,8 @@ export const useGameStore = defineStore('game', () => {
       type,
       message,
       characterId,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      ...extra
     })
   }
 
@@ -103,7 +131,8 @@ export const useGameStore = defineStore('game', () => {
       flags: [...flags.value],
       triggeredEvents: [...triggeredEvents.value],
       collectedCards: [...collectedCards.value],
-      logs: JSON.parse(JSON.stringify(logs.value))
+      logs: JSON.parse(JSON.stringify(logs.value)),
+      pendingDelayedResults: JSON.parse(JSON.stringify(pendingDelayedResults.value))
     })
     if (history.value.length > 100) {
       history.value.shift()
@@ -122,6 +151,7 @@ export const useGameStore = defineStore('game', () => {
     triggeredEvents.value = [...snapshot.triggeredEvents]
     collectedCards.value = [...snapshot.collectedCards]
     logs.value = JSON.parse(JSON.stringify(snapshot.logs))
+    pendingDelayedResults.value = JSON.parse(JSON.stringify(snapshot.pendingDelayedResults))
     history.value = history.value.slice(0, stepIndex)
     addLog('system', `回退到第 ${snapshot.day} 天 ${getTimeLabel(snapshot.timeSlot)}`)
   }
@@ -177,6 +207,45 @@ export const useGameStore = defineStore('game', () => {
     checkAndTriggerEvent()
   }
 
+  function processDelayedResults() {
+    const todayResults = pendingDelayedResults.value.filter(r => r.triggerDay <= day.value)
+    if (todayResults.length === 0) return
+
+    todayResults.sort((a, b) => a.triggerDay - b.triggerDay)
+
+    todayResults.forEach(result => {
+      if (result.effects) {
+        result.effects.forEach(effect => {
+          if (effect.affinityChange !== undefined) {
+            updateCharacterAffinity(effect.characterId, effect.affinityChange)
+          }
+          if (effect.moodChange !== undefined) {
+            updateCharacterMood(effect.characterId, effect.moodChange)
+          }
+        })
+      }
+
+      if (result.resourceChange !== undefined) {
+        resources.value = Math.max(0, resources.value + result.resourceChange)
+      }
+
+      addLog(
+        result.type,
+        result.message,
+        result.characterId,
+        {
+          linkedEventId: result.sourceEventId,
+          linkedChoiceId: result.sourceChoiceId,
+          isDelayedResult: true
+        }
+      )
+    })
+
+    pendingDelayedResults.value = pendingDelayedResults.value.filter(
+      r => r.triggerDay > day.value
+    )
+  }
+
   function nextDay() {
     day.value++
     timeSlot.value = gameConfig.timeSlots[0]
@@ -198,6 +267,7 @@ export const useGameStore = defineStore('game', () => {
     })
 
     addLog('system', `🌅 第 ${day.value} 天开始了`)
+    processDelayedResults()
   }
 
   function performAction(actionType: ActionType, targetId?: string, giftId?: string) {
@@ -363,6 +433,7 @@ export const useGameStore = defineStore('game', () => {
 
   function handleEventChoice(choice: EventChoice) {
     saveHistory()
+    const eventId = currentEvent.value?.id
 
     choice.effects.forEach(effect => {
       if (effect.affinityChange !== undefined) {
@@ -394,7 +465,23 @@ export const useGameStore = defineStore('game', () => {
       }
     }
 
-    addLog('story', `选择了：${choice.text}`)
+    addLog('story', `选择了：${choice.text}`, undefined, eventId ? { linkedEventId: eventId, linkedChoiceId: choice.id } : undefined)
+
+    if (choice.delayedResults && choice.delayedResults.length > 0 && eventId) {
+      choice.delayedResults.forEach(dr => {
+        pendingDelayedResults.value.push({
+          id: `dr_${++delayedResultIdCounter}`,
+          triggerDay: day.value + dr.daysAfter,
+          message: dr.message,
+          type: dr.type || 'story',
+          characterId: dr.characterId,
+          effects: dr.effects,
+          resourceChange: dr.resourceChange,
+          sourceEventId: eventId,
+          sourceChoiceId: choice.id
+        })
+      })
+    }
 
     currentEvent.value = null
     showEventModal.value = false
@@ -438,8 +525,10 @@ export const useGameStore = defineStore('game', () => {
     triggeredEvents.value = []
     collectedCards.value = []
     logs.value = []
+    pendingDelayedResults.value = []
     history.value = []
     logIdCounter = 0
+    delayedResultIdCounter = 0
 
     addLog('system', '🎮 游戏开始！欢迎来到恋爱物语')
     checkAndTriggerEvent()
@@ -467,6 +556,7 @@ export const useGameStore = defineStore('game', () => {
     collectedCards,
     logs,
     history,
+    pendingDelayedResults,
     currentEvent,
     showEventModal,
     darkMode,
